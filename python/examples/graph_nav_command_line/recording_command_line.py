@@ -73,10 +73,42 @@ class RecordingInterface(object):
             '5': self._download_full_graph,
             '6': self._list_graph_waypoint_and_edge_ids,
             '7': self._create_new_edge,
-            '8': self._create_loop,
-            '9': self._auto_close_loops_prompt,
+            '8': self._create_new_edges,
+            '9': self._create_new_edges_default_waypoints,
+            '10': self._create_loop,
+            '11': self._auto_close_loops_prompt,
             'a': self._optimize_anchoring
         }
+
+        # self.default_edges = {
+        #     0: [1, 2, 3, 4, 5],
+        #     1: [0, 2, 3],
+        #     2: [0, 1, 3],
+        #     3: [0, 1, 2, 4, 5, 6],
+        #     4: [0, 3, 5, 6],
+        #     5: [0, 3, 4],
+        #     6: [3, 4, 7],
+        #     7: [6, 8, 10],
+        #     8: [7],
+        #     10: [7]
+        # }  # house_env0
+
+        self.default_edges = {
+            0: [1, 3, 13],
+            1: [0, 2],
+            2: [1],
+            3: [0, 4, 11],
+            4: [3, 5, 6],
+            5: [4, 7],
+            6: [4, 7],
+            7: [5, 6, 8],
+            8: [7, 9],
+            9: [8, 10],
+            10: [9, 11, 12],
+            11: [3, 10],
+            12: [10, 13],
+            13: [0, 12]
+        }  # house_env1
 
     def should_we_start_recording(self):
         # Before starting to record, check the state of the GraphNav system.
@@ -145,7 +177,10 @@ class RecordingInterface(object):
 
     def _create_default_waypoint(self, *args):
         """Create a default waypoint at the robot's current location."""
-        resp = self._recording_client.create_waypoint(waypoint_name="default")
+        if len(args[0]):
+            resp = self._recording_client.create_waypoint(waypoint_name=args[0][0])
+        else:
+            resp = self._recording_client.create_waypoint(waypoint_name="default")
         if resp.status == recording_pb2.CreateWaypointResponse.STATUS_OK:
             print("Successfully created a waypoint.")
         else:
@@ -271,6 +306,30 @@ class RecordingInterface(object):
         # Send request to add edge to map
         self._recording_client.create_edge(edge=new_edge)
 
+    def _create_new_edges(self, *args):
+        parent_waypoint = args[0][0]
+        child_waypoints = args[0][1:]
+
+        for child_wp in child_waypoints:
+            self._create_new_edge([parent_waypoint, child_wp])
+            time.sleep(1)
+
+    def _create_new_edges_default_waypoints(self, *args):
+        graph = self._graph_nav_client.download_graph()
+        wps = {wp.annotations.name.split("_")[0]: wp for wp in graph.waypoints if "waypoint" not in wp.annotations.name}  # default waypoints
+        for parent_wp_name, child_wp_names in self.default_edges.items():
+            for child_wp_name in child_wp_names:
+                if str(parent_wp_name) in wps and str(child_wp_name) in wps:
+                    parent_wp = wps[str(parent_wp_name)]
+                    child_wp = wps[str(child_wp_name)]
+                    print(f"adding edge between {parent_wp.annotations.name} {child_wp.annotations.name}")
+                    breakpoint()
+                    try:
+                        self._create_new_edges([parent_wp.id, child_wp.id])
+                    except:
+                        continue
+                    time.sleep(3)
+
     def _create_loop(self, *args):
         """Create edge from last waypoint to first waypoint."""
 
@@ -379,8 +438,10 @@ class RecordingInterface(object):
             (5) Download the map after recording.
             (6) List the waypoint ids and edge ids of the map on the robot.
             (7) Create new edge between existing waypoints using odometry.
-            (8) Create new edge from last waypoint to first waypoint using odometry.
-            (9) Automatically find and close loops.
+            (8) Create new edges between parent and child waypoints using odometry.
+            (9) Create new edges between default waypoints using odometry.
+            (10) Create new edge from last waypoint to first waypoint using odometry.
+            (11) Automatically find and close loops.
             (a) Optimize the map's anchoring.
             (q) Exit.
             """)
@@ -447,7 +508,7 @@ def main(argv):
         print("Recording command line client threw an error.")
         return False
 
-
+# python3 -m recording_command_line --download-filepath $HOME/spot_dev/maps gouger
 if __name__ == '__main__':
     if not main(sys.argv[1:]):
         sys.exit(1)

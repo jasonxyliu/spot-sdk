@@ -80,8 +80,9 @@ class GraphNavInterface(object):
             '5': self._upload_graph_and_snapshots,
             '6': self._navigate_to,
             '7': self._navigate_route,
-            '8': self._navigate_to_anchor,
-            '9': self._clear_graph
+            '8': self._navigate_path,
+            '9': self._navigate_to_anchor,
+            '10': self._clear_graph
         }
 
     def _get_localization_state(self, *args):
@@ -344,10 +345,28 @@ class GraphNavInterface(object):
                 # the robot down once it is finished.
                 is_finished = self._check_success(nav_route_command_id)
 
-            # Power off the robot if appropriate.
-            if self._powered_on and not self._started_powered_on:
-                # Sit the robot down + power off after the navigation command is complete.
-                self.toggle_power(should_power_on=False)
+            # # Power off the robot if appropriate.
+            # if self._powered_on and not self._started_powered_on:
+            #     # Sit the robot down + power off after the navigation command is complete.
+            #     self.toggle_power(should_power_on=False)
+
+    def _navigate_path(self, *args):
+        graph = self._graph_nav_client.download_graph()
+        default_wp_idx2id = {wp.annotations.name.split("_")[0]: wp.id for wp in graph.waypoints if "waypoint" not in wp.annotations.name}  # default waypoints
+
+        nodes, is_aps = [], []
+        for arg in args[0]:
+            if arg == 't' or arg == 'f':
+                is_aps.append(arg)
+            else:
+                nodes.append(arg)
+
+        for node_idx in range(len(nodes)-1):
+            from_wp = default_wp_idx2id[nodes[node_idx]]
+            to_wp = default_wp_idx2id[nodes[node_idx + 1]]
+            self._navigate_route([from_wp, to_wp])
+            if is_aps[node_idx] == "t":
+                time.sleep(5)
 
     def _clear_graph(self, *args):
         """Clear the state of the map on the robot, removing all waypoints and edges."""
@@ -442,12 +461,13 @@ class GraphNavInterface(object):
             (5) Upload the graph and its snapshots.
             (6) Navigate to. The destination waypoint id is the second argument.
             (7) Navigate route. The (in-order) waypoint ids of the route are the arguments.
-            (8) Navigate to in seed frame. The following options are accepted for arguments: [x, y],
+            (8) Navigate path. Node IDs along the path are the arguments.
+            (9) Navigate to in seed frame. The following options are accepted for arguments: [x, y],
                 [x, y, yaw], [x, y, z, yaw], [x, y, z, qw, qx, qy, qz]. (Don't type the braces).
                 When a value for z is not specified, we use the current z height.
                 When only yaw is specified, the quaternion is constructed from the yaw.
                 When yaw is not specified, an identity quaternion is used.
-            (9) Clear the current graph.
+            (10) Clear the current graph.
             (q) Exit.
             """)
             try:
@@ -485,6 +505,8 @@ def main(argv):
 
     graph_nav_command_line = GraphNavInterface(robot, options.upload_filepath)
     lease_client = robot.ensure_client(LeaseClient.default_service_name)
+    lease_client.take()  # use when need to switch between script and tablet
+
     try:
         with LeaseKeepAlive(lease_client, must_acquire=True, return_at_exit=True):
             try:
@@ -500,7 +522,7 @@ def main(argv):
         )
         return False
 
-
+# python3 -m graph_nav_command_line --upload-filepath $HOME/spot_dev/maps/downloaded_graph gouger
 if __name__ == '__main__':
     exit_code = 0
     if not main(sys.argv[1:]):
